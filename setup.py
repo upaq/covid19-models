@@ -2,7 +2,7 @@ import sys
 from setuptools import setup, find_packages
 
 with open('requirements.txt', 'r') as req:
-    requires = req.read().split('\n'')
+    requires = req.read().split('\n')
 
 # enforce Python3 for all versions of pip/setuptools
 assert sys.version_info >= (3,), 'This package requires Python 3.'
