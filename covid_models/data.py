@@ -208,8 +208,14 @@ class CovidData(object):
                 vectors will be created.
 
         Returns:
-
-
+            x: A pandas Series, which contains the time series data without any
+                NaNs. Small disconnected snippets early on in the time series,
+                like when there is a single fatal COVID-19 case in a month,
+                are trimmed. In cases where the original data was
+                [NaN, a, NaN, b, c, d], the series [b, c, d] is returned.
+            controls: A matrix of feature vectors. Each row contains a
+                feature vector for the corresponding element in `x`.
+            future_controls: A matrix of hypothesized future feature vectors.
         """
 
         country_df = self.df.loc[iso]
