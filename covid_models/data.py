@@ -114,7 +114,8 @@ class CovidData(object):
     def __init__(self):
         # Read in the data.
         df = pd.read_csv(
-            '/Users/ulrich/github/upaq/delve/combined_dataset_latest.csv')
+            'https://raw.githubusercontent.com/rs-delve/covid19_datasets'
+            '/master/dataset/combined_dataset_latest.csv')
         df['DATE'] = pd.to_datetime(df['DATE'], format='%Y-%m-%d')
         df = df.set_index(['ISO', 'DATE'])
 
