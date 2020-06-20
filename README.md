@@ -1,6 +1,6 @@
 # Data and models for COVID-19
 
-Data processing an models for COVID-19
+Data processing and models for COVID-19
 
 ## Usage example:
 
@@ -28,6 +28,7 @@ for idx in range(len(isos)):
         country_bias=True,
         country_index=idx,
         total_countries=len(isos),
+        dynamic_bias=True,
         future_days=21)
     
 ```
