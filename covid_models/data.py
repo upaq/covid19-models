@@ -110,6 +110,35 @@ def _get_range(x: pd.Series):
     return first_idx, last_idx
 
 
+def get_dynamic_bias(x, x_min_3, x_min_7, x_min_10):
+    """Construct a simple bias vector that depends on the time series.
+
+    Args:
+        x:        The logarithm of average COVID-19 deaths for a week.
+        x_min_3:  The logarithm of average COVID-19 deaths for a week ending
+                  3 days prior to x's date.
+        x_min_7:  The logarithm of average COVID-19 deaths for a week ending
+                  7 days prior to x's date.
+        x_min_10: The logarithm of average COVID-19 deaths for a week ending
+                  10 days prior to x's date.
+
+    Returns:
+        A dynamic bias control vector (matrix) of the form
+            [x_t - x_{t-3}, x_t - x_{t-7}, x_t - x_{t-10}].
+    """
+
+    delta_3 = x - x_min_3
+    delta_7 = x - x_min_7
+    delta_10 = x - x_min_10
+
+    dyn_bias = np.concatenate((np.reshape(delta_3, (-1, 1)),
+                               np.reshape(delta_7, (-1, 1)),
+                               np.reshape(delta_10, (-1, 1))),
+                              axis=1)
+
+    return dyn_bias
+
+
 class CovidData(object):
     def __init__(self):
         # Read in the data.
@@ -168,6 +197,7 @@ class CovidData(object):
                          country_bias: bool=False,
                          country_index: int=0,
                          total_countries: int=0,
+                         dynamic_bias: bool=False,
                          alpha: float=1.0,
                          future_days: int=7) -> Tuple[pd.Series,
                                                       np.ndarray,
@@ -199,6 +229,14 @@ class CovidData(object):
             total_countries: The total number of countries, required for the
                 length of the one-hot encoding of a country when `country_bias`
                 is true.
+            dynamic_bias: If true, appends a 3-dimensional feature vector to
+                the controls (historical feature vectors). The feature vector
+                has additional elements
+                    [log(x_t) - log(x_{t - 3}),
+                     log(x_t) - log(x_{t - 7}),
+                     log(x_t) - log(x_{t - 10})]
+                where x_t is the average COVID-19 deaths for the week ending in
+                day t.
             alpha: A non-negative value which indicates how much the last day's
                 non-pharmaceutical interventions (NPIs) are scaled to create
                 a feature vector for future days. A value of 0.0 means that
@@ -208,14 +246,26 @@ class CovidData(object):
                 vectors will be created.
 
         Returns:
-            x: A pandas Series, which contains the time series data without any
-                NaNs. Small disconnected snippets early on in the time series,
-                like when there is a single fatal COVID-19 case in a month,
-                are trimmed. In cases where the original data was
+            x: A pandas Series, which contains the logarithm of the weekly
+                average COVID-19 deaths as a time series. It is created so that
+                there are no NaNs or negative infinite values in the time
+                series. Small disconnected snippets early on in the time
+                series, like when there is a single fatal COVID-19 case in a
+                month, are trimmed. In cases where the original data was
                 [NaN, a, NaN, b, c, d], the series [b, c, d] is returned.
             controls: A matrix of feature vectors. Each row contains a
                 feature vector for the corresponding element in `x`.
             future_controls: A matrix of hypothesized future feature vectors.
+
+        Remarks:
+            The controls on day t-1 are intended to effect day t, and the
+            dynamic bias term is constructed that way. It is intended to be
+            used in a Gaussian Linear Dynamical System which has the form:
+            z_t | z_{t-1}, u_{t-1} = ...
+            y_t | z_t = ...
+            where latent state z_t depends on the latent state z_{t-1} and
+            the previous day's controls or features u_{t-1}. y_t is the
+            observation on day t.
         """
 
         country_df = self.df.loc[iso]
@@ -223,6 +273,11 @@ class CovidData(object):
             country_df = country_df.loc[:max_date]
 
         x = country_df['deaths_week_avg']
+
+        if dynamic_bias:
+            x_min_3 = x.shift(periods=+3).fillna(method='backfill')
+            x_min_7 = x.shift(periods=+7).fillna(method='backfill')
+            x_min_10 = x.shift(periods=+10).fillna(method='backfill')
 
         # We assume that data is too noisy when mortality is less than
         # `exclude_weekly_average_below` per day.
@@ -237,6 +292,17 @@ class CovidData(object):
             return None, None, None
         else:
             x = x.loc[first_idx:last_idx]
+
+            if dynamic_bias:
+                x_min_3 = np.log(x_min_3.loc[first_idx:last_idx]).replace(
+                    [np.inf, -np.inf], np.nan).fillna(
+                    method='backfill')
+                x_min_7 = np.log(x_min_7.loc[first_idx:last_idx]).replace(
+                    [np.inf, -np.inf], np.nan).fillna(
+                    method='backfill')
+                x_min_10 = np.log(x_min_10.loc[first_idx:last_idx]).replace(
+                    [np.inf, -np.inf], np.nan).fillna(
+                    method='backfill')
 
             # Get the starting date for policies.
             features = country_df[npis]
@@ -269,5 +335,15 @@ class CovidData(object):
                 indicator_column[:, country_index] = 1
                 future_controls = np.append(future_controls, indicator_column,
                                             axis=1)
+
+            if dynamic_bias:
+                dyn_bias = get_dynamic_bias(x.to_numpy(),
+                                            x_min_3.to_numpy(),
+                                            x_min_7.to_numpy(),
+                                            x_min_10.to_numpy())
+
+                # Append the dynamic biases to the controls, but not the future
+                # controls.
+                controls = np.append(controls, dyn_bias, axis=1)
 
         return x, controls, future_controls
