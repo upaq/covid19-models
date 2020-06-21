@@ -110,35 +110,6 @@ def _get_range(x: pd.Series):
     return first_idx, last_idx
 
 
-def get_dynamic_bias(x, x_min_3, x_min_7, x_min_10):
-    """Construct a simple bias vector that depends on the time series.
-
-    Args:
-        x:        The logarithm of average COVID-19 deaths for a week.
-        x_min_3:  The logarithm of average COVID-19 deaths for a week ending
-                  3 days prior to x's date.
-        x_min_7:  The logarithm of average COVID-19 deaths for a week ending
-                  7 days prior to x's date.
-        x_min_10: The logarithm of average COVID-19 deaths for a week ending
-                  10 days prior to x's date.
-
-    Returns:
-        A dynamic bias control vector (matrix) of the form
-            [x_t - x_{t-3}, x_t - x_{t-7}, x_t - x_{t-10}].
-    """
-
-    delta_3 = x - x_min_3
-    delta_7 = x - x_min_7
-    delta_10 = x - x_min_10
-
-    dyn_bias = np.concatenate((np.reshape(delta_3, (-1, 1)),
-                               np.reshape(delta_7, (-1, 1)),
-                               np.reshape(delta_10, (-1, 1))),
-                              axis=1)
-
-    return dyn_bias
-
-
 class CovidData(object):
     def __init__(self):
         # Read in the data.
@@ -337,13 +308,42 @@ class CovidData(object):
                                             axis=1)
 
             if dynamic_bias:
-                dyn_bias = get_dynamic_bias(x.to_numpy(),
-                                            x_min_3.to_numpy(),
-                                            x_min_7.to_numpy(),
-                                            x_min_10.to_numpy())
+                dyn_bias = self.get_dynamic_bias(x.to_numpy(),
+                                                 x_min_3.to_numpy(),
+                                                 x_min_7.to_numpy(),
+                                                 x_min_10.to_numpy())
 
                 # Append the dynamic biases to the controls, but not the future
                 # controls.
                 controls = np.append(controls, dyn_bias, axis=1)
 
         return x, controls, future_controls
+
+    @staticmethod
+    def get_dynamic_bias(x, x_min_3, x_min_7, x_min_10):
+        """Construct a simple bias vector that depends on the time series.
+
+        Args:
+            x:        The logarithm of average COVID-19 deaths for a week.
+            x_min_3:  The logarithm of average COVID-19 deaths for a week
+                      ending 3 days prior to x's date.
+            x_min_7:  The logarithm of average COVID-19 deaths for a week
+                      ending 7 days prior to x's date.
+            x_min_10: The logarithm of average COVID-19 deaths for a week
+                      ending 10 days prior to x's date.
+
+        Returns:
+            A dynamic bias control vector (matrix) of the form
+                [x_t - x_{t-3}, x_t - x_{t-7}, x_t - x_{t-10}].
+        """
+
+        delta_3 = x - x_min_3
+        delta_7 = x - x_min_7
+        delta_10 = x - x_min_10
+
+        dyn_bias = np.concatenate((np.reshape(delta_3, (-1, 1)),
+                                   np.reshape(delta_7, (-1, 1)),
+                                   np.reshape(delta_10, (-1, 1))),
+                                  axis=1)
+
+        return dyn_bias
