@@ -200,11 +200,12 @@ class LDS(object):
                 future_inputs, gamma, future_dynamic_bias=dynamic_bias)
 
         for t in range(1, Tpred):
-            db = dynamic_bias.get_last_dynamic_bias(running_x[0:T + t, :],
-                                                    country_df)
-
             u_t_min_1 = future_inputs[t - 1]
-            u_t_min_1 = np.append(u_t_min_1, db)
+
+            if dynamic_bias is not None:
+                db = dynamic_bias.get_last_dynamic_bias(running_x[0:T + t, :],
+                                                        country_df)
+                u_t_min_1 = np.append(u_t_min_1, db)
 
             states[t] = (s.A.dot(states[t - 1]) +
                          s.B.dot(u_t_min_1) +
