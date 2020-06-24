@@ -42,7 +42,7 @@ def VanillaLDS(D_obs, D_latent, D_input=0,
 
 class LDS(object):
     def __init__(self, D_obs: int, D_latent: int, D_input: int,
-                 D_input_gamma: int):
+                 D_input_gamma: int=0):
         assert D_input_gamma <= D_input
 
         self.D_obs = D_obs
@@ -74,10 +74,130 @@ class LDS(object):
         self.gammas = []
         self.inputs = []
 
-    def add_data(self, x, inputs):
+    def set_parameters(self, mu_init=None, sigma_init=None,
+                       A=None, B=None, sigma_states=None,
+                       C=None, D=None, sigma_obs=None):
+        if mu_init is not None:
+            self.model.mu_init = mu_init
+        if sigma_init is not None:
+            self.model.sigma_init = sigma_init
+        if A is not None:
+            self.model.A = A
+        if B is not None:
+            self.model.B = B
+        if C is not None:
+            self.model.C = C
+        if D is not None:
+            self.model.D = D
+        if sigma_states is not None:
+            self.model.dynamics_distn.sigma = sigma_states
+        if sigma_obs is not None:
+            self.model.emission_distn.sigma = sigma_obs
+
+    def add_data(self, x, inputs, gamma=1.0):
         self.model.add_data(x, inputs=inputs)
-        self.gammas.append(1.0)
+        self.gammas.append(gamma)
         self.inputs.append(inputs)
+
+    def pop_time_series(self) -> Tuple[pylds.states.LDSStates,
+                                       float,
+                                       np.ndarray]:
+        """Removes the last time series, added with `add_data(...)`, from the
+        model."""
+        s = self.model.states_list.pop()
+        gamma = self.gammas.pop()
+        inputs = self.inputs.pop()
+        return s, gamma, inputs
+
+    def infer_and_forward_sample(self,
+                                 x: np.ndarray,
+                                 inputs: np.ndarray,
+                                 gamma: float,
+                                 Tpred: int,
+                                 future_inputs: np.ndarray=None,
+                                 states_noise: bool=False,
+                                 obs_noise: bool=False) -> Tuple[np.ndarray,
+                                                                 np.ndarray,
+                                                                 np.ndarray]:
+        """Infers the posterior marginal means and covariances of p(z|x),
+        given the current model parameters. Returns the posterior predictive
+        means and covariances of x (for error bars). Forward-samples `Tpred`
+        future observations, starting with the filtered posterior mean and
+        covariance of the last element of p(z|x) as prior.
+
+        Code adapted from pylds/pylds/states.py"""
+
+        self.add_data(x, inputs, gamma)
+
+        if self.D_input_gamma > 0:
+            self._scale_inputs_by_gamma()
+
+        self.model.resample_states()
+
+        s, _, _ = self.pop_time_series()
+
+        s.smooth()
+
+        smoothed_x_mean = s.smoothed_mus.dot(s.C.T) + s.inputs.dot(s.D.T)
+
+        C = np.expand_dims(s.C, axis=0)
+        smoothed_x_cov = np.matmul(C, np.matmul(s.smoothed_sigmas,
+                                                np.transpose(C, (0, 2, 1))))
+        smoothed_x_cov += np.expand_dims(self.model.emission_distn.sigma,
+                                         axis=0)
+
+        # Sample into the future! Note that we could include state and
+        # observation noise.
+
+        future_inputs = np.zeros(
+            (Tpred, s.D_input - 1)) if future_inputs is None else future_inputs
+
+        if self.D_input_gamma > 0:
+            future_inputs = self._scale_input_by_gamma(future_inputs, gamma)
+
+        _, filtered_mus, filtered_sigmas = \
+            pylds.lds_messages_interface.kalman_filter(
+                s.mu_init, s.sigma_init,
+                s.A, s.B, s.sigma_states,
+                s.C, s.D, s.sigma_obs,
+                s.inputs, s.data)
+
+        # We take the last input in "s", and use it to get the distribution
+        # of z_0 for the forward samples.
+        init_mu = s.A.dot(filtered_mus[-1]) + s.B.dot(s.inputs[-1])
+        init_sigma = s.sigma_states + s.A.dot(filtered_sigmas[-1]).dot(s.A.T)
+
+        randseq = np.zeros((Tpred - 1, s.D_latent))
+        if states_noise:
+            L = np.linalg.cholesky(s.sigma_states)
+            randseq += np.random.randn(Tpred - 1, s.D_latent).dot(L.T)
+
+        states = np.empty((Tpred, s.D_latent))
+        obs = np.empty((Tpred, s.D_emission))
+
+        if states_noise:
+            states[0] = np.random.multivariate_normal(init_mu, init_sigma)
+        else:
+            states[0] = init_mu
+
+        u_t_min_1 = s.inputs[-1, :]
+
+        L = np.linalg.cholesky(s.sigma_obs)
+        obs[0] = states[0].dot(s.C.T) + u_t_min_1.dot(s.D.T)
+        if obs_noise:
+            obs[0] += np.random.randn(1, s.D_emission).dot(L.T).flatten()
+
+        for t in range(1, Tpred):
+            u_t_min_1 = future_inputs[t - 1]
+            states[t] = (s.A.dot(states[t - 1]) +
+                         s.B.dot(u_t_min_1) +
+                         randseq[t - 1])
+
+            obs[t] = states[t].dot(s.C.T) + u_t_min_1.dot(s.D.T)
+            if obs_noise:
+                obs[t] += np.random.randn(1, s.D_emission).dot(L.T).flatten()
+
+        return smoothed_x_mean, smoothed_x_cov, obs
 
     def _resample_dynamics_identity_control(self, data):
 
@@ -140,15 +260,14 @@ class LDS(object):
 
             self.gammas[i] = gamma
 
-    def resample_model(self,
-                       identity_transition_matrix: bool=False,
-                       fixed_emission_matrix: bool=False,
-                       include_gamma: bool=False) -> Tuple['MCMCSample',
-                                                           float]:
+    def resample_model(
+            self,
+            identity_transition_matrix: bool=False,
+            fixed_emission_matrix: bool=False) -> Tuple['MCMCSample', float]:
 
         # 1.  Resample the parameters
         # 1.1 Resample the scalar gamma for each time series' external control
-        if include_gamma:
+        if self.D_input_gamma > 0:
             self._resample_gamma()
             self._scale_inputs_by_gamma()
 
@@ -195,19 +314,20 @@ class LDS(object):
     def resample_states(self):
         self.model.resample_states()
 
+    def _scale_input_by_gamma(self, inputs, gamma):
+        gamma_mask = np.concatenate(
+            (
+                gamma * np.ones((1, self.D_input_gamma)),
+                np.ones((1, self.D_input - self.D_input_gamma))
+            ),
+            axis=1)
+        return inputs * gamma_mask
+
     def _scale_inputs_by_gamma(self):
         for s, inputs, gamma in zip(self.model.states_list,
-                                    self.inputs, self.gammas):
-            gamma_mask = np.concatenate(
-                (
-                    gamma * np.ones((1, self.D_input_gamma)),
-                    np.ones((1, self.D_input - self.D_input_gamma))
-                ),
-                axis=1)
-
-            s.inputs = inputs * gamma_mask
-
-            # should other statistics be set?
+                                    self.inputs,
+                                    self.gammas):
+            s.inputs = self._scale_input_by_gamma(inputs, gamma)
 
 
 class MCMCSample(object):
