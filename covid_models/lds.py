@@ -215,7 +215,7 @@ class LDS(object):
         natural_hypparam = self.model.dynamics_distn._standard_to_natural(
             self.D_latent + 1,  # nu_0
             self.D_latent * np.eye(self.D_latent),  # S_0
-            self.np.zeros((self.D_latent, self.D_input)),  # M_0
+            np.zeros((self.D_latent, self.D_input)),  # M_0
             self.D_latent * np.eye(self.D_input)  # K_0
         )
         mean_params = self.model.dynamics_distn._natural_to_standard(
