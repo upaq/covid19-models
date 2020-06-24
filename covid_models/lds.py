@@ -1,9 +1,12 @@
 import numpy as np
+import pandas as pd
 import pybasicbayes
 import pylds.models
 
 from pybasicbayes.util.stats import sample_mniw
 from typing import Tuple
+
+from .dynamic_bias import AbstractDynamicBias
 
 
 def VanillaLDS(D_obs, D_latent, D_input=0,
@@ -115,6 +118,8 @@ class LDS(object):
                                  gamma: float,
                                  Tpred: int,
                                  future_inputs: np.ndarray=None,
+                                 dynamic_bias: AbstractDynamicBias=None,
+                                 country_df: pd.DataFrame=None,
                                  states_noise: bool=False,
                                  obs_noise: bool=False) -> Tuple[np.ndarray,
                                                                  np.ndarray,
@@ -146,15 +151,6 @@ class LDS(object):
         smoothed_x_cov += np.expand_dims(self.model.emission_distn.sigma,
                                          axis=0)
 
-        # Sample into the future! Note that we could include state and
-        # observation noise.
-
-        future_inputs = np.zeros(
-            (Tpred, s.D_input - 1)) if future_inputs is None else future_inputs
-
-        if self.D_input_gamma > 0:
-            future_inputs = self._scale_input_by_gamma(future_inputs, gamma)
-
         _, filtered_mus, filtered_sigmas = \
             pylds.lds_messages_interface.kalman_filter(
                 s.mu_init, s.sigma_init,
@@ -174,6 +170,8 @@ class LDS(object):
 
         states = np.empty((Tpred, s.D_latent))
         obs = np.empty((Tpred, s.D_emission))
+        running_x = np.concatenate((x, obs), axis=0)
+        T = x.shape[0]
 
         if states_noise:
             states[0] = np.random.multivariate_normal(init_mu, init_sigma)
@@ -187,8 +185,27 @@ class LDS(object):
         if obs_noise:
             obs[0] += np.random.randn(1, s.D_emission).dot(L.T).flatten()
 
+        running_x[T] = obs[0]
+        # print(running_x.shape, running_x)
+
+        if future_inputs is None:
+            if dynamic_bias is None:
+                future_inputs = np.zeros((Tpred, s.D_input - 1))
+            else:
+                future_inputs = np.zeros(
+                    (Tpred, s.D_input - dynamic_bias.dim - 1))
+
+        if self.D_input_gamma > 0:
+            future_inputs = self._scale_input_by_gamma(
+                future_inputs, gamma, future_dynamic_bias=dynamic_bias)
+
         for t in range(1, Tpred):
+            db = dynamic_bias.get_last_dynamic_bias(running_x[0:T + t, :],
+                                                    country_df)
+
             u_t_min_1 = future_inputs[t - 1]
+            u_t_min_1 = np.append(u_t_min_1, db)
+
             states[t] = (s.A.dot(states[t - 1]) +
                          s.B.dot(u_t_min_1) +
                          randseq[t - 1])
@@ -196,6 +213,8 @@ class LDS(object):
             obs[t] = states[t].dot(s.C.T) + u_t_min_1.dot(s.D.T)
             if obs_noise:
                 obs[t] += np.random.randn(1, s.D_emission).dot(L.T).flatten()
+
+            running_x[T + t] = obs[t]
 
         return smoothed_x_mean, smoothed_x_cov, obs
 
@@ -314,11 +333,17 @@ class LDS(object):
     def resample_states(self):
         self.model.resample_states()
 
-    def _scale_input_by_gamma(self, inputs, gamma):
+    def _scale_input_by_gamma(self,
+                              inputs: np.ndarray,
+                              gamma: float,
+                              future_dynamic_bias: AbstractDynamicBias=None):
+
+        dim = 0 if future_dynamic_bias is None else future_dynamic_bias.dim
+
         gamma_mask = np.concatenate(
             (
                 gamma * np.ones((1, self.D_input_gamma)),
-                np.ones((1, self.D_input - self.D_input_gamma))
+                np.ones((1, self.D_input - self.D_input_gamma - dim))
             ),
             axis=1)
         return inputs * gamma_mask
