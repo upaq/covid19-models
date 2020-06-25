@@ -33,7 +33,7 @@ class AbstractDynamicBias(abc.ABC):
 
 class DynamicBiasDeltas(AbstractDynamicBias):
     """A feature vector with elements x_t - x_{t - i}, where x_t is the
-    logarithm of the average COVID-19 deaths for the week ending in day t"""
+    logarithm of the average COVID-19 deaths for the week ending in day t."""
 
     def __init__(self, days_back: List[int]):
         for d in days_back:
@@ -56,6 +56,39 @@ class DynamicBiasDeltas(AbstractDynamicBias):
     def _get_dynamic_bias(self, x, x_days_back):
         deltas = [np.reshape(x - y, (-1, 1)) for y in x_days_back]
         return np.concatenate(deltas, axis=1)
+
+    def get_last_dynamic_bias(self, x, country_df):
+        x_days_back = [x[- 1 - d] for d in self.days_back]
+        return self._get_dynamic_bias(x[-1], x_days_back)
+
+
+class DynamicBiasDeltasQuadratic(AbstractDynamicBias):
+    """A feature vector with elements x_t - x_{t - i} and (x_t - x_{t - i})^2,
+    where x_t is the logarithm of the average COVID-19 deaths for the week
+    ending in day t."""
+
+    def __init__(self, days_back: List[int]):
+        for d in days_back:
+            assert d > 0
+        self.days_back = days_back
+
+    @property
+    def dim(self):
+        return 2 * len(self.days_back)
+
+    def get_dynamic_bias_from_df(self, x, country_df):
+        x_days_back = []
+        for d in self.days_back:
+            x_back = x.shift(periods=d).fillna(method='backfill')
+            x_days_back.append(x_back.to_numpy())
+
+        return self._get_dynamic_bias(x.to_numpy(),
+                                      x_days_back)
+
+    def _get_dynamic_bias(self, x, x_days_back):
+        deltas = [np.reshape(x - y, (-1, 1)) for y in x_days_back]
+        deltas2 = [np.reshape((x - y) * (x - y), (-1, 1)) for y in x_days_back]
+        return np.concatenate(deltas + deltas2, axis=1)
 
     def get_last_dynamic_bias(self, x, country_df):
         x_days_back = [x[- 1 - d] for d in self.days_back]
