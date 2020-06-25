@@ -2,6 +2,8 @@ import abc
 import numpy as np
 import pandas as pd
 
+from typing import List
+
 
 class AbstractDynamicBias(abc.ABC):
     """An external control that depends on past observations."""
@@ -30,40 +32,34 @@ class AbstractDynamicBias(abc.ABC):
 
 
 class DynamicBiasDeltas(AbstractDynamicBias):
-    """A 3-dimensional feature vector with elements
-            [x_t - x_{t - 3}, x_t - x_{t - 7}, x_t - x_{t - 10}]
-    where x_t is the logarithm of the average COVID-19 deaths for the week
-    ending in day t."""
+    """A feature vector with elements x_t - x_{t - i}, where x_t is the
+    logarithm of the average COVID-19 deaths for the week ending in day t"""
 
-    def __init__(self):
-        self._dim = 3
+    def __init__(self, days_back: List[int]):
+        for d in days_back:
+            assert d > 0
+        self.days_back = days_back
 
     @property
     def dim(self):
-        return self._dim
+        return len(self.days_back)
 
     def get_dynamic_bias_from_df(self, x, country_df):
-        x_min_3 = x.shift(periods=+3).fillna(method='backfill')
-        x_min_7 = x.shift(periods=+7).fillna(method='backfill')
-        x_min_10 = x.shift(periods=+10).fillna(method='backfill')
+        x_days_back = []
+        for d in self.days_back:
+            x_back = x.shift(periods=d).fillna(method='backfill')
+            x_days_back.append(x_back.to_numpy())
 
         return self._get_dynamic_bias(x.to_numpy(),
-                                      x_min_3.to_numpy(),
-                                      x_min_7.to_numpy(),
-                                      x_min_10.to_numpy())
+                                      x_days_back)
 
-    def _get_dynamic_bias(self, x, x_min_3, x_min_7, x_min_10):
-        delta_3 = x - x_min_3
-        delta_7 = x - x_min_7
-        delta_10 = x - x_min_10
-
-        return np.concatenate((np.reshape(delta_3, (-1, 1)),
-                               np.reshape(delta_7, (-1, 1)),
-                               np.reshape(delta_10, (-1, 1))),
-                              axis=1)
+    def _get_dynamic_bias(self, x, x_days_back):
+        deltas = [np.reshape(x - y, (-1, 1)) for y in x_days_back]
+        return np.concatenate(deltas, axis=1)
 
     def get_last_dynamic_bias(self, x, country_df):
-        return self._get_dynamic_bias(x[-1], x[-4], x[-8], x[-11])
+        x_days_back = [x[- 1 - d] for d in self.days_back]
+        return self._get_dynamic_bias(x[-1], x_days_back)
 
 
 class DynamicBiasCumulative(AbstractDynamicBias):
@@ -77,7 +73,6 @@ class DynamicBiasCumulative(AbstractDynamicBias):
         return self._dim
 
     def get_dynamic_bias_from_df(self, x, country_df):
-
         population = country_df['stats_population'].max()
 
         y = np.exp(x).cumsum().to_numpy()
@@ -91,6 +86,7 @@ class DynamicBiasCumulative(AbstractDynamicBias):
         y = 1000 * y / population
 
         return np.reshape(y, (-1, 1))
+
 
 class DynamicBiasLogCumulative(AbstractDynamicBias):
     """The logarithm of the cumulative mortality up to day t.
