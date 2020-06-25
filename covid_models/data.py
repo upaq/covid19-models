@@ -113,13 +113,17 @@ def _get_range(x: pd.Series):
 
 
 class CovidData(object):
-    def __init__(self):
+    def __init__(self, remove_china_correction: bool=False):
         # Read in the data.
         df = pd.read_csv(
             'https://raw.githubusercontent.com/rs-delve/covid19_datasets'
             '/master/dataset/combined_dataset_latest.csv')
         df['DATE'] = pd.to_datetime(df['DATE'], format='%Y-%m-%d')
         df = df.set_index(['ISO', 'DATE'])
+
+        if remove_china_correction:
+            adjustment_date = datetime.datetime(2020, 4, 17)
+            df.at[('CHN', adjustment_date), 'deaths_new'] = 0
 
         for npi in _NPIS:
             df[npi] = df[npi] / df[npi].max()
