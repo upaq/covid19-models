@@ -91,3 +91,26 @@ class DynamicBiasCumulative(AbstractDynamicBias):
         y = 1000 * y / population
 
         return np.reshape(y, (-1, 1))
+
+class DynamicBiasLogCumulative(AbstractDynamicBias):
+    """The logarithm of the cumulative mortality up to day t.
+
+    Remarks: A constant log normalizer (like the country's total population) is
+    not subtracted, as it is a country-specific constant that could be learned
+    by a country-specific bias parameter.
+    """
+
+    def __init__(self):
+        self._dim = 1
+
+    @property
+    def dim(self):
+        return self._dim
+
+    def get_dynamic_bias_from_df(self, x, country_df):
+        y = np.log(np.exp(x).cumsum()).to_numpy()
+        return np.reshape(y, (-1, 1))
+
+    def get_last_dynamic_bias(self, x, country_df):
+        y = np.log(np.sum(np.exp(x)))
+        return np.reshape(y, (-1, 1))
