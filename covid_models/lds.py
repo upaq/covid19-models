@@ -79,7 +79,9 @@ class LDS(object):
 
     def set_parameters(self, mu_init=None, sigma_init=None,
                        A=None, B=None, sigma_states=None,
-                       C=None, D=None, sigma_obs=None):
+                       C=None, D=None, sigma_obs=None,
+                       gamma_prior_precision=None,
+                       gamma_prior_mean_times_precision=None):
         if mu_init is not None:
             self.model.mu_init = mu_init
         if sigma_init is not None:
@@ -96,6 +98,11 @@ class LDS(object):
             self.model.dynamics_distn.sigma = sigma_states
         if sigma_obs is not None:
             self.model.emission_distn.sigma = sigma_obs
+        if gamma_prior_precision is not None:
+            self.gamma_prior_precision = gamma_prior_precision
+        if gamma_prior_mean_times_precision is not None:
+            self.gamma_prior_mean_times_precision = \
+                gamma_prior_mean_times_precision
 
     def add_data(self, x, inputs, gamma=1.0):
         self.model.add_data(x, inputs=inputs)
