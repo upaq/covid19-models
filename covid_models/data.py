@@ -1,7 +1,7 @@
-import datetime
 import numpy as np
 import pandas as pd
 
+from datetime import datetime
 from typing import List, Tuple
 
 from .dynamic_bias import AbstractDynamicBias
@@ -38,8 +38,7 @@ def _create_controls(x: pd.Series,
                      alpha=1.0):
     """Create weeks_back controls."""
     # Ensure that we have a long enough history of features, so that for any
-    #  `x` we can create a
-    # features vector (or control vector).
+    #  `x` we can create a features vector (or control vector).
     days_back = weeks_back * 7
     zero_features = np.zeros((days_back, features.shape[1]))
     features = np.append(zero_features, features, axis=0)
@@ -122,7 +121,7 @@ class CovidData(object):
         df = df.set_index(['ISO', 'DATE'])
 
         if remove_china_correction:
-            adjustment_date = datetime.datetime(2020, 4, 17)
+            adjustment_date = datetime(2020, 4, 17)
             df.at[('CHN', adjustment_date), 'deaths_new'] = 0
 
         for npi in _NPIS:
@@ -152,7 +151,7 @@ class CovidData(object):
     def countries_with_cumulative_mortality_greater_than(
             self,
             min_cumulative_mortality: int,
-            date: datetime.datetime) -> List[str]:
+            date: datetime) -> List[str]:
         """Get a list of countries with cumulative mortality greater than
         `min_cumulative_mortality` on `date`.
         """
@@ -168,7 +167,7 @@ class CovidData(object):
                          iso: str,
                          npis: List[str],
                          exclude_weekly_average_below: float=1.0,
-                         max_date: datetime.datetime=None,
+                         max_date: datetime=None,
                          weeks_back: int=4,
                          global_bias: bool=True,
                          country_bias: bool=False,
@@ -301,3 +300,12 @@ class CovidData(object):
                 controls = np.append(controls, dyn_bias, axis=1)
 
         return x, controls, future_controls, country_df
+
+    def get_x(self,
+              iso: str,
+              first_day: datetime,
+              last_day: datetime) -> pd.Series:
+        country_df = self.df.loc[iso]
+        country_df = country_df.loc[first_day:last_day]
+
+        return country_df['deaths_week_avg']
