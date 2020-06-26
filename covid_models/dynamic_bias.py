@@ -143,3 +143,44 @@ class DynamicBiasLogCumulative(AbstractDynamicBias):
     def get_last_dynamic_bias(self, x, country_df):
         y = np.log(np.sum(np.exp(x)))
         return np.reshape(y, (-1, 1))
+
+
+class DynamicBiasLogRemainder(AbstractDynamicBias):
+    """The logarithm of (1 - normalized cumulative mortality) up to day t."""
+
+    def __init__(self):
+        self.dbc = DynamicBiasCumulative()
+
+    @property
+    def dim(self):
+        return self.dbc.dim
+
+    def get_dynamic_bias_from_df(self, x, country_df):
+        y = self.dbc.get_dynamic_bias_from_df(x, country_df)
+        return np.log(np.maximum(1 - y, 1e-1))
+
+    def get_last_dynamic_bias(self, x, country_df):
+        y = self.dbc.get_last_dynamic_bias(x, country_df)
+        return np.log(np.maximum(1 - y, 1e-1))
+
+
+class DynamicBiasArray(AbstractDynamicBias):
+    """The logarithm of (1 - normalized cumulative mortality) up to day t."""
+
+    def __init__(self, dynamic_biases: List[AbstractDynamicBias]):
+        self.dynamic_biases = dynamic_biases
+
+    @property
+    def dim(self):
+        dims = [db.dim for db in self.dynamic_biases]
+        return sum(dims)
+
+    def get_dynamic_bias_from_df(self, x, country_df):
+        dbs = [db.get_dynamic_bias_from_df(x, country_df)
+               for db in self.dynamic_biases]
+        return np.concatenate(dbs, axis=1)
+
+    def get_last_dynamic_bias(self, x, country_df):
+        dbs = [db.get_last_dynamic_bias(x, country_df)
+               for db in self.dynamic_biases]
+        return np.concatenate(dbs, axis=1)

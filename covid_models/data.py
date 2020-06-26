@@ -307,5 +307,7 @@ class CovidData(object):
               last_day: datetime) -> pd.Series:
         country_df = self.df.loc[iso]
         country_df = country_df.loc[first_day:last_day]
+        x = np.log(country_df['deaths_week_avg'])
+        x = x.replace([np.inf, -np.inf], np.nan)
 
-        return country_df['deaths_week_avg']
+        return x
