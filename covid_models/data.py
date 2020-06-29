@@ -142,9 +142,16 @@ class CovidData(object):
 
         df['deaths_week_avg'] = df['rolling_deaths'].copy() / 7.0
 
-        # Comment: we could also center the sliding windows on the day, with:
-        # df.loc[:, ['deaths_week_avg']] = df.loc[:, ['deaths_week_avg']]. \
-        #        groupby(level=0).shift(periods=-3)
+        df['mobility'] = (df['mobility_retail_recreation'] +
+                          df['mobility_grocery_pharmacy'] +
+                          df['mobility_parks'] +
+                          df['mobility_transit_stations'] +
+                          df['mobility_workplaces'] -
+                          df['mobility_residential'])
+        df.loc[:, ['mobility']] = df.loc[:, ['mobility']]. \
+            groupby(level=0). \
+            apply(lambda rows: rows.rolling(7).sum())
+        df['mobility'] = df['mobility'] / 7.0
 
         self.df = df.replace([np.inf, -np.inf], np.nan)
 
@@ -256,7 +263,7 @@ class CovidData(object):
         first_idx, last_idx = _get_range(x)
 
         if first_idx is None:
-            return None, None, None
+            return None, None, None, None
         else:
             x = x.loc[first_idx:last_idx]
 
@@ -273,7 +280,7 @@ class CovidData(object):
                 alpha=alpha)
 
             if controls is None:
-                return None, None, None
+                return None, None, None, None
 
             if global_bias:
                 ones = np.ones((controls.shape[0], 1))
