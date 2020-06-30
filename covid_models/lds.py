@@ -12,18 +12,47 @@ from .dynamic_bias import AbstractDynamicBias
 def VanillaLDS(D_obs, D_latent, D_input=0,
                mu_init=None, sigma_init=None,
                A=None, B=None, sigma_states=None,
-               C=None, D=None, sigma_obs=None):
+               C=None, D=None, sigma_obs=None,
+               nu_0_dyn=None, S_0_dyn=None, M_0_dyn=None, K_0_dyn=None,
+               nu_0_em=None, S_0_em=None, M_0_em=None, K_0_em=None):
+
+    # y | A, x, Sigma ~ N(y ; Ax, Sigma)
+    # See page 72 in Gelman et al's Bayesian Data Analysis (3rd ed):
+    #
+    # Sigma    ~ IW(Sigma ; S_0, nu_0)
+    # nu_0     : degrees of freedom
+    # S_0      : scale matrix
+    # E[Sigma] = 1 / (nu_0 - dim - 1) * S_0
+    # With nu_0 = dim + 1 degrees of freedom, each of the correlations in Sigma
+    # has a marginal uniform prior distribution (although the joint, with Sigma
+    # being positive definite, doesn't).
+    #
+    # A | Sigma ~ N(A ; M_0, Sigma K_0)
+    # M_0       : mean of A
+    # K_0       : covariance scaling of rows of A
+
+    if nu_0_dyn is None:
+        nu_0_dyn = D_latent + 1
+    if S_0_dyn is None:
+        S_0_dyn = D_latent * np.eye(D_latent)
+    if M_0_dyn is None:
+        M_0_dyn = np.zeros((D_latent, D_latent + D_input))
+    if K_0_dyn is None:
+        K_0_dyn = D_latent * np.eye(D_latent + D_input)
+    if nu_0_em is None:
+        nu_0_em = D_obs + 1
+    if S_0_em is None:
+        S_0_em = D_obs * np.eye(D_obs)
+    if M_0_em is None:
+        M_0_em = np.zeros((D_obs, D_latent + D_input))
+    if K_0_em is None:
+        K_0_em = D_obs * np.eye(D_latent + D_input)
+
     model = pylds.models.LDS(
         dynamics_distn=pybasicbayes.distributions.Regression(
-            nu_0=D_latent + 1,
-            S_0=D_latent * np.eye(D_latent),
-            M_0=np.zeros((D_latent, D_latent + D_input)),
-            K_0=D_latent * np.eye(D_latent + D_input)),
+            nu_0=nu_0_dyn, S_0=S_0_dyn, M_0=M_0_dyn, K_0=K_0_dyn),
         emission_distn=pybasicbayes.distributions.Regression(
-            nu_0=D_obs + 1,
-            S_0=D_obs * np.eye(D_obs),
-            M_0=np.zeros((D_obs, D_latent + D_input)),
-            K_0=D_obs * np.eye(D_latent + D_input)))
+            nu_0=nu_0_em, S_0=S_0_em, M_0=M_0_em, K_0=K_0_em))
 
     set_default = \
         lambda prm, val, default: \
@@ -45,7 +74,7 @@ def VanillaLDS(D_obs, D_latent, D_input=0,
 
 class LDS(object):
     def __init__(self, D_obs: int, D_latent: int, D_input: int,
-                 D_input_gamma: int=0):
+                 D_input_gamma: int=0, dynamics_prior_scalar: float=1.0):
         assert D_input_gamma <= D_input
 
         self.D_obs = D_obs
@@ -67,13 +96,15 @@ class LDS(object):
         mu_init = np.zeros(D_latent)
         sigma_init = np.eye(D_latent)
 
+        K_0_dyn = dynamics_prior_scalar * D_latent * np.eye(D_latent + D_input)
         self.model = VanillaLDS(self.D_obs, self.D_latent, self.D_input,
                                 A=np.eye(self.D_latent),
                                 B=np.zeros((self.D_latent, self.D_input)),
                                 C=np.ones((self.D_obs, self.D_latent)),
                                 D=np.zeros((self.D_obs, self.D_input)),
                                 mu_init=mu_init,
-                                sigma_init=sigma_init)
+                                sigma_init=sigma_init,
+                                K_0_dyn=K_0_dyn)
         self.gammas = []
         self.inputs = []
 
