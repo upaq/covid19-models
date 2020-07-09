@@ -200,12 +200,12 @@ class CovidData(object):
             lambda rows: rows.rolling(7).sum())
         df['rolling_stringency'] = df['rolling_stringency'] / 7.0
 
-        def week_str(col_name: str, week: int):
-            return col_name + '_' + str(week)
+        def week_str(col_name: str, d: int):
+            return col_name + '_' + str(d)
 
         col_list = []
-        for days_back in range(days_back_list):
-            col = week_str('rolling_stringency', week)
+        for days_back in days_back_list:
+            col = week_str('rolling_stringency', days_back)
             df[col] = df['rolling_stringency'].copy()
             df[col] = df[col].shift(days_back)
             df[col] = df[col].fillna(value=0)
