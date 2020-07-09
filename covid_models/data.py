@@ -173,7 +173,7 @@ class CovidData(object):
     def create_stringency_vectors(
             self,
             iso: str,
-            weeks_back: int=4,
+            days_back_list: List=None,
             max_date: datetime=None) -> Tuple[pd.DatetimeIndex,
                                               np.ndarray,
                                               np.ndarray]:
@@ -185,6 +185,9 @@ class CovidData(object):
             features: A matrix of Oxford stringency index features for each day
                 (as rows)
         """
+
+        if days_back_list is None:
+            days_back_list = [14, 21, 28]
 
         df = self.df.loc[iso].copy()
         if max_date is not None:
@@ -201,10 +204,10 @@ class CovidData(object):
             return col_name + '_' + str(week)
 
         col_list = []
-        for week in range(weeks_back):
+        for days_back in range(days_back_list):
             col = week_str('rolling_stringency', week)
             df[col] = df['rolling_stringency'].copy()
-            df[col] = df[col].shift(7 * week)
+            df[col] = df[col].shift(days_back)
             df[col] = df[col].fillna(value=0)
             df[col] = df[col].fillna(method='ffill')
             col_list.append(col)
