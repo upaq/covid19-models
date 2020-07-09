@@ -170,6 +170,51 @@ class CovidData(object):
             cumulative_mortality > min_cumulative_mortality]
         return isos.index.get_level_values('ISO').unique().tolist()
 
+    def create_stringency_vectors(
+            self,
+            iso: str,
+            weeks_back: int=4,
+            max_date: datetime=None) -> Tuple[pd.DatetimeIndex,
+                                              np.ndarray,
+                                              np.ndarray]:
+        """Constructs Oxford stringency vectors for each day for a country.
+
+        Returns:
+            t: The time index of the data
+            y: A vector of average mortality per day
+            features: A matrix of Oxford stringency index features for each day
+                (as rows)
+        """
+
+        df = self.df.loc[iso].copy()
+        if max_date is not None:
+            df = df.loc[:max_date]
+
+        df['rolling_stringency'] = df['npi_stringency_index'].copy()
+
+        df.loc[:, ['rolling_stringency']] = \
+            df.loc[:, ['rolling_stringency']].apply(
+            lambda rows: rows.rolling(7).sum())
+        df['rolling_stringency'] = df['rolling_stringency'] / 7.0
+
+        def week_str(col_name: str, week: int):
+            return col_name + '_' + str(week)
+
+        col_list = []
+        for week in range(weeks_back):
+            col = week_str('rolling_stringency', week)
+            df[col] = df['rolling_stringency'].copy()
+            df[col] = df[col].shift(7 * week)
+            df[col] = df[col].fillna(value=0)
+            df[col] = df[col].fillna(method='ffill')
+            col_list.append(col)
+
+        t = df.index
+        y = df['deaths_week_avg'].fillna(value=0).to_numpy()
+        features = df[col_list].to_numpy()
+
+        return t, y, features
+
     def get_country_data(self,
                          iso: str,
                          npis: List[str],
