@@ -180,10 +180,11 @@ class CovidData(object):
         """Constructs Oxford stringency vectors for each day for a country.
 
         Returns:
-            t: The time index of the data
-            y: A vector of average mortality per day
+            t:        The time index of the data
+            y:        A vector of daily mortality
+            y_avg:    A vector of week-averaged mortality per day
             features: A matrix of Oxford stringency index features for each day
-                (as rows)
+                      (as rows)
         """
 
         if days_back_list is None:
@@ -213,10 +214,11 @@ class CovidData(object):
             col_list.append(col)
 
         t = df.index
-        y = df['deaths_week_avg'].fillna(value=0).to_numpy()
+        y = df['deaths_new'].fillna(value=0).to_numpy()
+        y_avg = df['deaths_week_avg'].fillna(value=0).to_numpy()
         features = df[col_list].to_numpy()
 
-        return t, y, features
+        return t, y, y_avg, features
 
     def get_country_data(self,
                          iso: str,
